@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/system_properties.h>
 #include "Il2Cpp/il2cpp_dump.h"
+#include "Il2Cpp/il2cpp_dump_extended.h"
 #include "Includes/config.h"
 #include "Includes/log.h"
 
@@ -42,6 +43,12 @@ void dump_thread() {
 
     il2cpp_api_init(il2cpp_handle);
     il2cpp_dump(androidDataPath.c_str());
+    
+#ifdef EnableExtendedDump
+    // Generate additional files for IDA Pro
+    LOGI("Extended dump enabled - generating IDA Pro files...");
+    il2cpp_dump_extended(androidDataPath.c_str());
+#endif
 }
 
 //The idea from first Il2Cpp Dumper called PokemonGoDumper

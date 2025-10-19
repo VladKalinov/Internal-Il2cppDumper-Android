@@ -1,4 +1,10 @@
 # Auto-Il2cppDumper
+\n+Language / Язык / 语言:
+
+- English: [README_EN.md](README_EN.md) · [Quickstart](QUICKSTART_EN.md) · [IDA Guide](IDA_PRO_GUIDE_EN.md)
+- Русский: [README_EXTENDED.md](README_EXTENDED.md) · [Быстрый старт](QUICKSTART.md) · [Гайд по IDA](IDA_PRO_GUIDE.md)
+- 中文: [README_ZH.md](README_ZH.md) · [快速上手](QUICKSTART_ZH.md) · [IDA 指南](IDA_PRO_GUIDE_ZH.md)
+
 Il2CppDumper without Magisk/Zygisk, dump il2cpp data at runtime, can bypass protection, encryption and obfuscation.
 
 This project is based on BrianGIG [Auto-Il2cppDumper](https://github.com/BryanGIG/Auto-Il2cppDumper) which I continue to maintain it

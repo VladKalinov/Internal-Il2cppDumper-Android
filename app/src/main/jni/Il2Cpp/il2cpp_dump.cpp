@@ -25,7 +25,7 @@
 
 #undef DO_API
 
-static uint64_t il2cpp_base = 0;
+uint64_t il2cpp_base = 0;
 
 const char *GetPackageName() {
     //https://stackoverflow.com/questions/42918762/how-to-get-app-package-name-or-applicationid-using-jni-android

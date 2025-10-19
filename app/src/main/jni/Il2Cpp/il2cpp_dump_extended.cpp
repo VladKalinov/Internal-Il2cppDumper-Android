@@ -1,0 +1,261 @@
+//
+// Extended dumper for IDA Pro support
+// Generates script.json, il2cpp.h, and StringLiteral.json
+//
+
+#include "il2cpp_dump_extended.h"
+#include "il2cpp_dump.h"
+#include <dlfcn.h>
+#include <cstdlib>
+#include <cstring>
+#include <cinttypes>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <fstream>
+#include <map>
+#include <set>
+#include "Includes/log.h"
+#include "il2cpp-tabledefs.h"
+#include "il2cpp-class.h"
+
+#define DO_API(r, n, p) r (*n) p
+#include "il2cpp-api-functions.h"
+#undef DO_API
+
+extern uint64_t il2cpp_base;
+
+// Simple JSON escaping
+std::string json_escape(const std::string &str) {
+    std::stringstream ss;
+    for (char c : str) {
+        switch (c) {
+            case '"': ss << "\\\""; break;
+            case '\\': ss << "\\\\"; break;
+            case '\b': ss << "\\b"; break;
+            case '\f': ss << "\\f"; break;
+            case '\n': ss << "\\n"; break;
+            case '\r': ss << "\\r"; break;
+            case '\t': ss << "\\t"; break;
+            default:
+                if (c < 32) {
+                    ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (int)c;
+                } else {
+                    ss << c;
+                }
+        }
+    }
+    return ss.str();
+}
+
+// Generate script.json with method addresses for IDA Pro
+void dump_script_json(const char *outDir) {
+    LOGI("Generating script.json...");
+    
+    size_t size;
+    auto domain = il2cpp_domain_get();
+    auto assemblies = il2cpp_domain_get_assemblies(domain, &size);
+    
+    std::stringstream json;
+    json << "{\n";
+    json << "  \"ScriptMethod\": [\n";
+    
+    bool firstMethod = true;
+    
+    if (il2cpp_image_get_class) {
+        for (int i = 0; i < size; ++i) {
+            auto image = il2cpp_assembly_get_image(assemblies[i]);
+            auto classCount = il2cpp_image_get_class_count(image);
+            
+            for (int j = 0; j < classCount; ++j) {
+                auto klass = il2cpp_image_get_class(image, j);
+                auto className = il2cpp_class_get_name(klass);
+                auto namespaceName = il2cpp_class_get_namespace(klass);
+                
+                void *iter = nullptr;
+                while (auto method = il2cpp_class_get_methods(klass, &iter)) {
+                    if (method->methodPointer) {
+                        if (!firstMethod) json << ",\n";
+                        firstMethod = false;
+                        
+                        uint64_t rva = (uint64_t)method->methodPointer - il2cpp_base;
+                        uint64_t va = (uint64_t)method->methodPointer;
+                        
+                        json << "    {\n";
+                        json << "      \"Address\": " << va << ",\n";
+                        json << "      \"RVA\": " << rva << ",\n";
+                        json << "      \"Name\": \"" << json_escape(il2cpp_method_get_name(method)) << "\",\n";
+                        json << "      \"Signature\": \"";
+                        
+                        // Build method signature
+                        auto return_type = il2cpp_method_get_return_type(method);
+                        auto return_class = il2cpp_class_from_type(return_type);
+                        json << json_escape(il2cpp_class_get_name(return_class)) << " ";
+                        json << json_escape(il2cpp_method_get_name(method)) << "(";
+                        
+                        auto param_count = il2cpp_method_get_param_count(method);
+                        for (int k = 0; k < param_count; ++k) {
+                            auto param = il2cpp_method_get_param(method, k);
+                            auto parameter_class = il2cpp_class_from_type(param);
+                            json << json_escape(il2cpp_class_get_name(parameter_class));
+                            if (k < param_count - 1) json << ", ";
+                        }
+                        json << ")\",\n";
+                        
+                        json << "      \"TypeSignature\": \"" << json_escape(namespaceName) << "." << json_escape(className) << "\"\n";
+                        json << "    }";
+                    }
+                }
+            }
+        }
+    }
+    
+    json << "\n  ],\n";
+    json << "  \"ScriptMetadata\": [\n";
+    json << "  ],\n";
+    json << "  \"ScriptMetadataMethod\": [\n";
+    json << "  ],\n";
+    json << "  \"Addresses\": [\n";
+    json << "  ]\n";
+    json << "}\n";
+    
+    auto outPath = std::string(outDir) + "/script.json";
+    std::ofstream outStream(outPath);
+    outStream << json.str();
+    outStream.close();
+    
+    LOGI("script.json saved to %s", outPath.c_str());
+}
+
+// Generate il2cpp.h with C++ struct definitions
+void dump_il2cpp_header(const char *outDir) {
+    LOGI("Generating il2cpp.h...");
+    
+    size_t size;
+    auto domain = il2cpp_domain_get();
+    auto assemblies = il2cpp_domain_get_assemblies(domain, &size);
+    
+    std::stringstream header;
+    header << "// Generated by Il2CppDumper Extended\n";
+    header << "// IL2CPP C++ Header Definitions\n\n";
+    header << "#ifndef IL2CPP_STRUCTS_H\n";
+    header << "#define IL2CPP_STRUCTS_H\n\n";
+    header << "#include <cstdint>\n\n";
+    
+    std::set<std::string> processedClasses;
+    
+    if (il2cpp_image_get_class) {
+        for (int i = 0; i < size; ++i) {
+            auto image = il2cpp_assembly_get_image(assemblies[i]);
+            auto classCount = il2cpp_image_get_class_count(image);
+            
+            for (int j = 0; j < classCount; ++j) {
+                auto klass = il2cpp_image_get_class(image, j);
+                auto className = il2cpp_class_get_name(klass);
+                auto namespaceName = il2cpp_class_get_namespace(klass);
+                
+                std::string fullName = std::string(namespaceName) + "::" + std::string(className);
+                if (processedClasses.find(fullName) != processedClasses.end()) {
+                    continue;
+                }
+                processedClasses.insert(fullName);
+                
+                auto is_valuetype = il2cpp_class_is_valuetype(klass);
+                auto is_enum = il2cpp_class_is_enum(klass);
+                
+                if (strlen(namespaceName) > 0) {
+                    header << "namespace " << namespaceName << " {\n";
+                }
+                
+                if (is_enum) {
+                    header << "enum " << className << " {\n";
+                } else {
+                    header << "struct " << className << " {\n";
+                }
+                
+                // Dump fields
+                void *iter = nullptr;
+                while (auto field = il2cpp_class_get_fields(klass, &iter)) {
+                    auto field_type = il2cpp_field_get_type(field);
+                    auto field_class = il2cpp_class_from_type(field_type);
+                    auto field_name = il2cpp_field_get_name(field);
+                    auto offset = il2cpp_field_get_offset(field);
+                    
+                    header << "    ";
+                    
+                    // Simple type mapping
+                    auto type_name = il2cpp_class_get_name(field_class);
+                    if (strcmp(type_name, "Int32") == 0) header << "int32_t";
+                    else if (strcmp(type_name, "Int64") == 0) header << "int64_t";
+                    else if (strcmp(type_name, "UInt32") == 0) header << "uint32_t";
+                    else if (strcmp(type_name, "UInt64") == 0) header << "uint64_t";
+                    else if (strcmp(type_name, "Single") == 0) header << "float";
+                    else if (strcmp(type_name, "Double") == 0) header << "double";
+                    else if (strcmp(type_name, "Boolean") == 0) header << "bool";
+                    else if (strcmp(type_name, "Byte") == 0) header << "uint8_t";
+                    else header << "void*";
+                    
+                    header << " " << field_name << "; // 0x" << std::hex << offset << std::dec << "\n";
+                }
+                
+                header << "};\n";
+                
+                if (strlen(namespaceName) > 0) {
+                    header << "}\n";
+                }
+                header << "\n";
+            }
+        }
+    }
+    
+    header << "#endif // IL2CPP_STRUCTS_H\n";
+    
+    auto outPath = std::string(outDir) + "/il2cpp.h";
+    std::ofstream outStream(outPath);
+    outStream << header.str();
+    outStream.close();
+    
+    LOGI("il2cpp.h saved to %s", outPath.c_str());
+}
+
+// Generate StringLiteral.json with all string literals
+void dump_string_literals(const char *outDir) {
+    LOGI("Generating StringLiteral.json...");
+    
+    std::stringstream json;
+    json << "{\n";
+    json << "  \"StringLiterals\": [\n";
+    
+    // Note: String literal extraction requires access to metadata
+    // This is a simplified version - full implementation would need
+    // to parse the global-metadata.dat structure
+    
+    json << "  ]\n";
+    json << "}\n";
+    
+    auto outPath = std::string(outDir) + "/StringLiteral.json";
+    std::ofstream outStream(outPath);
+    outStream << json.str();
+    outStream.close();
+    
+    LOGI("StringLiteral.json saved to %s", outPath.c_str());
+}
+
+// Main extended dump function that generates all files
+void il2cpp_dump_extended(const char *outDir) {
+    LOGI("Starting extended dump for IDA Pro...");
+    
+    // Create output directory path
+    std::string baseDir = outDir;
+    size_t lastSlash = baseDir.find_last_of('/');
+    if (lastSlash != std::string::npos) {
+        baseDir = baseDir.substr(0, lastSlash);
+    }
+    
+    // Generate all files
+    dump_script_json(baseDir.c_str());
+    dump_il2cpp_header(baseDir.c_str());
+    dump_string_literals(baseDir.c_str());
+    
+    LOGI("Extended dump completed!");
+}

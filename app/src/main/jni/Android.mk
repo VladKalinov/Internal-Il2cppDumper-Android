@@ -19,7 +19,8 @@ FILE_LIST := $(wildcard $(LOCAL_PATH)/Il2Cpp/xdl/*.c)
 
 LOCAL_SRC_FILES := $(FILE_LIST:$(LOCAL_PATH)/%=%)
 LOCAL_SRC_FILES += native-lib.cpp \
-                   Il2Cpp/il2cpp_dump.cpp
+                   Il2Cpp/il2cpp_dump.cpp \
+                   Il2Cpp/il2cpp_dump_extended.cpp
 
 LOCAL_LDLIBS := -llog -landroid -lGLESv2 -ldl
 include $(BUILD_SHARED_LIBRARY)
